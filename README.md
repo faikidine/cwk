@@ -1,5 +1,8 @@
 # CWK — Claude's Window Keeper
 
+[![CI](https://github.com/faikidine/cwk/actions/workflows/ci.yml/badge.svg)](https://github.com/faikidine/cwk/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/claude-window-keeper)](https://www.npmjs.com/package/claude-window-keeper)
+
 > Keep your Claude Code usage window synchronized.
 
 CWK is a small, engine-first CLI that keeps your Claude Code usage window aligned with your work schedule. It periodically sends a minimal ping through Claude Code so that whenever you sit down to work, the maximum possible window is ahead of you.
@@ -54,6 +57,18 @@ npm test              # unit + integration
 npm run test:unit
 npm run test:integration
 ```
+
+Every push and pull request to `main` runs the full test suite and a package sanity check (CI workflow).
+
+## Releasing
+
+Releases are fully automated (Release workflow):
+
+1. Bump the version: `npm version patch` (or `minor` / `major`).
+2. Push to `main` (directly or via PR).
+3. The workflow runs the tests, publishes `claude-window-keeper` to npm with provenance, creates the `vX.Y.Z` tag and the GitHub release.
+
+Pushes that do not change the version are skipped automatically. Requires the `NPM_TOKEN` repository secret (an npm automation token).
 
 ## Documentation
 
