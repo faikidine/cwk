@@ -1,0 +1,292 @@
+# Adapters
+
+> Runtime and infrastructure adapter specification.
+
+**Version:** Draft 1.0
+
+---
+
+# Purpose
+
+This document defines how CWK connects its Core Engine to external systems.
+
+CWK follows an Engine First architecture.
+
+The Core Engine owns the rules.
+
+Adapters execute those rules in specific environments.
+
+---
+
+# Adapter Principle
+
+Adapters must never contain business logic.
+
+They are responsible for:
+
+- calling external systems;
+- reading and writing infrastructure files;
+- executing commands;
+- translating infrastructure results.
+
+They are not responsible for deciding whether a ping should happen.
+
+---
+
+# Adapter Categories
+
+CWK has two main adapter categories.
+
+## Runtime Adapters
+
+Runtime adapters decide **how CWK is executed periodically**.
+
+Version 1 supports:
+
+```text
+GitHub Actions
+```
+
+Future runtime adapters may include:
+
+```text
+cron
+systemd
+Docker
+Windows Task Scheduler
+```
+
+## Infrastructure Adapters
+
+Infrastructure adapters connect CWK to external services or local systems.
+
+Examples:
+
+```text
+Claude Code CLI
+Filesystem
+Git
+GitHub Actions workflow files
+```
+
+---
+
+# Version 1 Runtime Adapter
+
+## GitHub Actions
+
+GitHub Actions is the default and only officially supported runtime adapter in v1.
+
+Its role is to:
+
+- run CWK periodically;
+- install required dependencies;
+- execute `cwk ping`;
+- allow CWK to update project state.
+
+The workflow must remain simple.
+
+It must not contain scheduling intelligence.
+
+---
+
+# GitHub Actions Workflow
+
+The generated workflow should:
+
+- run on a schedule;
+- support manual execution;
+- checkout the repository;
+- install Node.js;
+- install CWK;
+- install Claude Code;
+- run `cwk ping`;
+- commit updated `.cwk/state.json` if it changed.
+
+The workflow should not:
+
+- calculate elapsed time;
+- decide whether to ping;
+- modify configuration;
+- contain Claude-specific business logic.
+
+---
+
+# Claude Adapter
+
+The Claude adapter is responsible for contacting Claude Code.
+
+It should execute a minimal Claude Code command.
+
+Example behavior:
+
+```text
+claude -p "." --model haiku --no-session-persistence
+```
+
+The exact command may evolve.
+
+The adapter must classify results into:
+
+```text
+success
+rate_limited
+authentication_error
+unexpected_error
+```
+
+A rate limit response can be treated as successful contact.
+
+Authentication errors must fail execution.
+
+---
+
+# Filesystem Adapter
+
+The filesystem adapter persists project data.
+
+It is responsible for:
+
+- reading `.cwk/metadata.json`;
+- reading `.cwk/config.json`;
+- reading `.cwk/state.json`;
+- writing `.cwk/state.json`;
+- validating file existence.
+
+It must not decide what state means.
+
+---
+
+# Git Adapter
+
+The Git adapter is responsible for repository operations.
+
+Examples:
+
+- detect repository root;
+- detect current branch;
+- detect uncommitted changes;
+- commit state updates;
+- push changes.
+
+It must not decide whether a state update is required.
+
+---
+
+# Runtime Adapter Interface
+
+All runtime adapters should eventually follow the same conceptual interface.
+
+```ts
+interface RuntimeAdapter {
+  name: string
+  install(project: Project): Promise<Result>
+  uninstall(project: Project): Promise<Result>
+  validate(project: Project): Promise<Result>
+}
+```
+
+Version 1 may implement only what is required for GitHub Actions.
+
+---
+
+# Claude Adapter Interface
+
+```ts
+interface ClaudeClient {
+  ping(input: ClaudePingInput): Promise<ClaudePingResult>
+}
+```
+
+Result examples:
+
+```ts
+type ClaudePingResult =
+  | { status: "success" }
+  | { status: "rate_limited" }
+  | { status: "authentication_error"; message: string }
+  | { status: "unexpected_error"; message: string }
+```
+
+---
+
+# State Store Interface
+
+```ts
+interface StateStore {
+  loadProject(): Promise<Project>
+  saveState(state: ProjectState): Promise<void>
+}
+```
+
+The Core Engine depends on this interface, not on JSON files directly.
+
+---
+
+# Adapter Boundaries
+
+Adapters may use:
+
+- Node.js APIs;
+- filesystem access;
+- child processes;
+- environment variables;
+- Git commands;
+- GitHub workflow syntax.
+
+The Core Engine may not use any of these directly.
+
+---
+
+# Error Handling
+
+Adapters should translate infrastructure failures into structured errors.
+
+Examples:
+
+```text
+CLAUDE_AUTH_FAILED
+GIT_PUSH_FAILED
+STATE_FILE_NOT_FOUND
+WORKFLOW_FILE_MISSING
+```
+
+Raw stack traces should not be shown to users unless verbose mode is enabled.
+
+---
+
+# Future Adapters
+
+Future adapters should be added without modifying the Core Engine.
+
+Examples:
+
+## cron
+
+Generates a local cron entry that periodically runs:
+
+```bash
+cwk ping
+```
+
+## systemd
+
+Generates a systemd timer and service.
+
+## Docker
+
+Generates a containerized runner.
+
+## Windows Task Scheduler
+
+Generates a scheduled task on Windows.
+
+---
+
+# Architectural Rule
+
+Adapters translate between CWK and the outside world.
+
+They do not own business decisions.
+
+If an adapter needs to know whether a ping should happen, the architecture has been violated.
