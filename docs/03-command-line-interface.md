@@ -47,6 +47,7 @@ cwk init
 cwk status
 cwk ping
 cwk doctor
+cwk repair
 cwk reset
 ```
 
@@ -240,6 +241,49 @@ CWK Doctor
 
 Everything looks good.
 ```
+
+When checks fail, `doctor` suggests running `cwk repair`.
+
+---
+
+## repair
+
+Fixes problems reported by `doctor` while preserving as much information as possible.
+
+Principles:
+
+- never requires a reset;
+- only rewrites files that are actually broken;
+- keeps every valid value it can recover (configuration fields, custom cron minute, state);
+- explains in natural language what was broken and what was done.
+
+Example:
+
+```text
+CWK Repair
+
+⚠ Runtime
+  was: The workflow was missing the step that runs cwk ping.
+  now: Regenerated .github/workflows/cwk.yml (kept your schedule minute 17).
+
+⚠ Configuration
+  was: intervalHours was not a positive number.
+  now: Restored the default (5 hours). All other settings were preserved.
+
+2 problems repaired. Run cwk doctor to verify.
+```
+
+When there is nothing to fix:
+
+```text
+CWK Repair
+
+✓ Nothing to repair. Everything looks good.
+```
+
+If no project exists at all, `repair` cannot help and points to `cwk init`.
+
+When a value cannot be recovered (for example a corrupted state), repair falls back to the safest default and tells the user how to adjust it (`cwk ping --force`).
 
 ---
 

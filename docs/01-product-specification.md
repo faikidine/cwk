@@ -197,6 +197,26 @@ Diagnostic messages should always explain how the issue can be resolved.
 
 ---
 
+## Repair
+
+CWK should be able to fix a broken project without resetting it.
+
+Repair must:
+
+- preserve as much existing information as possible;
+- only rewrite what is actually broken;
+- report what was broken and what was repaired in natural language.
+
+Examples of repairable situations:
+
+- a missing or corrupted project file;
+- an invalid configuration value;
+- a missing or partially damaged runtime workflow.
+
+When information cannot be recovered, repair falls back to safe defaults and says so explicitly.
+
+---
+
 ## Reset
 
 CWK should allow the current project to be reset.

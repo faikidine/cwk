@@ -40,6 +40,7 @@ The Core Engine is responsible for:
 - validation
 - initialization
 - diagnostics
+- repair
 
 No other component should implement business rules.
 
@@ -61,6 +62,8 @@ engine.synchronize()
 engine.reset()
 
 engine.doctor()
+
+engine.repair()
 ```
 
 The CLI must never bypass the Facade.

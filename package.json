@@ -4,7 +4,7 @@
   "description": "Claude's Window Keeper — keep your Claude Code usage window ready for long sessions.",
   "type": "module",
   "bin": {
-    "cwk": "./src/cli/index.js"
+    "cwk": "src/cli/index.js"
   },
   "files": [
     "src",
@@ -21,7 +21,21 @@
   "dependencies": {
     "chrono-node": "^2.7.0"
   },
-  "keywords": ["claude", "claude-code", "github-actions", "cli"],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "github-actions",
+    "cli"
+  ],
+  "author": "faikidine",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/faikidine/cwk.git"
+  },
+  "homepage": "https://github.com/faikidine/cwk#readme",
+  "bugs": {
+    "url": "https://github.com/faikidine/cwk/issues"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=20"

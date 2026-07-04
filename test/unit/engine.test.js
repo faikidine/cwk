@@ -15,13 +15,31 @@ function makeProject(overrides = {}) {
   };
 }
 
-function makeFakes({ exists = true, project = makeProject(), pingResult = ok({ status: 'success', output: '' }) } = {}) {
-  const calls = { pings: 0, savedStates: [], written: [], installed: [], removed: 0, uninstalled: 0 };
+function partsFromProject(project) {
+  return {
+    metadata: { status: 'ok', path: '.cwk/metadata.json', value: project.metadata },
+    config: { status: 'ok', path: '.cwk/config.json', value: project.config },
+    state: { status: 'ok', path: '.cwk/state.json', value: project.state }
+  };
+}
+
+function makeFakes({
+  exists = true,
+  project = makeProject(),
+  parts,
+  diagnosis = { ok: true, problems: [] },
+  pingResult = ok({ status: 'success', output: '' })
+} = {}) {
+  const calls = { pings: 0, savedStates: [], savedParts: [], written: [], installed: [], runtimeRepairs: [], removed: 0, uninstalled: 0 };
   const engine = new CWKEngine({
     stateStore: {
       projectExists: async () => exists,
       loadProject: async () => (exists ? ok(project) : err('PROJECT_NOT_INITIALIZED', 'CWK project not initialized. Run: cwk init')),
+      loadParts: async () => parts ?? (exists
+        ? partsFromProject(project)
+        : { metadata: { status: 'missing', path: '.cwk/metadata.json' }, config: { status: 'missing', path: '.cwk/config.json' }, state: { status: 'missing', path: '.cwk/state.json' } }),
       writeProject: async (plan) => { calls.written.push(plan); return ok(); },
+      savePart: async (key, value) => { calls.savedParts.push({ key, value }); return ok(); },
       saveState: async (state) => { calls.savedStates.push(state); return ok(); },
       removeProject: async () => { calls.removed += 1; return ok(); }
     },
@@ -38,6 +56,8 @@ function makeFakes({ exists = true, project = makeProject(), pingResult = ok({ s
       }),
       install: async (plan) => { calls.installed.push(plan); return ok(); },
       validate: async () => ok(),
+      diagnose: async () => diagnosis,
+      repair: async ({ nextPingMs }) => { calls.runtimeRepairs.push(nextPingMs); return ok({ action: 'Regenerated the workflow.' }); },
       uninstall: async () => { calls.uninstalled += 1; return ok(); }
     },
     clock: { now: () => NOW },
@@ -186,6 +206,100 @@ test('reset removes the project and uninstalls the runtime', async () => {
   assert.equal(result.ok, true);
   assert.equal(calls.removed, 1);
   assert.equal(calls.uninstalled, 1);
+});
+
+test('repair does nothing on a healthy project', async () => {
+  const { engine, calls } = makeFakes();
+  const result = await engine.repair({ timezone: 'UTC' });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.value.repairs, []);
+  assert.equal(calls.savedParts.length, 0);
+  assert.equal(calls.runtimeRepairs.length, 0);
+});
+
+test('repair refuses when no project exists at all', async () => {
+  const { engine } = makeFakes({ exists: false });
+  const result = await engine.repair({ timezone: 'UTC' });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'PROJECT_NOT_INITIALIZED');
+});
+
+test('repair rebuilds a corrupted config with defaults and says so', async () => {
+  const project = makeProject();
+  const parts = partsFromProject(project);
+  parts.config = { status: 'corrupted', path: '.cwk/config.json', detail: 'Unexpected token' };
+  const { engine, calls } = makeFakes({ project, parts });
+
+  const result = await engine.repair({ timezone: 'Europe/Paris' });
+  assert.equal(result.ok, true);
+
+  const entry = result.value.repairs.find((r) => r.name === 'Configuration');
+  assert.match(entry.problem, /unreadable JSON/);
+  assert.match(entry.action, /every 5 hours/);
+
+  const saved = calls.savedParts.find((p) => p.key === 'config');
+  assert.equal(saved.value.timezone, 'Europe/Paris');
+  assert.equal(saved.value.intervalHours, 5);
+});
+
+test('repair fixes only the invalid config fields and keeps the rest', async () => {
+  const project = makeProject();
+  project.config = { ...project.config, intervalHours: -3, model: 'opus' };
+  const parts = partsFromProject(project);
+  const { engine, calls } = makeFakes({ project, parts });
+
+  const result = await engine.repair({ timezone: 'UTC' });
+  const entry = result.value.repairs.find((r) => r.name === 'Configuration');
+  assert.match(entry.problem, /intervalHours was invalid/);
+  assert.match(entry.action, /preserved/);
+
+  const saved = calls.savedParts.find((p) => p.key === 'config');
+  assert.equal(saved.value.intervalHours, 5);
+  assert.equal(saved.value.model, 'opus');
+  assert.equal(saved.value.timezone, 'UTC');
+});
+
+test('repair restarts the schedule when state is unrecoverable', async () => {
+  const project = makeProject();
+  const parts = partsFromProject(project);
+  parts.state = { status: 'missing', path: '.cwk/state.json' };
+  const { engine, calls } = makeFakes({ project, parts });
+
+  const result = await engine.repair({ timezone: 'UTC' });
+  const entry = result.value.repairs.find((r) => r.name === 'State');
+  assert.match(entry.action, /next ping in 5 hours/);
+  assert.match(entry.action, /cwk ping --force/);
+
+  const saved = calls.savedParts.find((p) => p.key === 'state');
+  assert.equal(saved.value.lastSuccessfulPing, NOW);
+});
+
+test('repair normalizes an unsupported format version but keeps metadata', async () => {
+  const project = makeProject();
+  project.metadata = { ...project.metadata, formatVersion: 99 };
+  const parts = partsFromProject(project);
+  const { engine, calls } = makeFakes({ project, parts });
+
+  const result = await engine.repair({ timezone: 'UTC' });
+  const entry = result.value.repairs.find((r) => r.name === 'Metadata');
+  assert.match(entry.problem, /format version 99/);
+
+  const saved = calls.savedParts.find((p) => p.key === 'metadata');
+  assert.equal(saved.value.formatVersion, FORMAT_VERSION);
+  assert.equal(saved.value.createdAt, project.metadata.createdAt);
+});
+
+test('repair delegates runtime problems to the adapter', async () => {
+  const diagnosis = { ok: false, problems: ['The workflow is missing the step that runs cwk ping.'] };
+  const { engine, calls } = makeFakes({ diagnosis });
+
+  const result = await engine.repair({ timezone: 'UTC' });
+  const entry = result.value.repairs.find((r) => r.name === 'Runtime');
+  assert.match(entry.problem, /cwk ping/);
+  assert.match(entry.action, /Regenerated/);
+  assert.equal(calls.runtimeRepairs.length, 1);
 });
 
 test('validateProject flags unsupported format versions', () => {

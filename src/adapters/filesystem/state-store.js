@@ -42,6 +42,41 @@ export class FileSystemStateStore {
     return ok(project);
   }
 
+  /**
+   * Read each project file independently, so a broken file does not
+   * hide the healthy ones. Used by repair.
+   */
+  async loadParts() {
+    const parts = {};
+    for (const [key, file] of Object.entries(FILES)) {
+      const relPath = path.join('.cwk', file);
+      let raw;
+      try {
+        raw = await fs.readFile(path.join(this.cwkDir, file), 'utf8');
+      } catch {
+        parts[key] = { status: 'missing', path: relPath };
+        continue;
+      }
+      try {
+        parts[key] = { status: 'ok', path: relPath, value: JSON.parse(raw) };
+      } catch (error) {
+        parts[key] = { status: 'corrupted', path: relPath, detail: error.message };
+      }
+    }
+    return parts;
+  }
+
+  async savePart(key, value) {
+    const file = FILES[key];
+    try {
+      await fs.mkdir(this.cwkDir, { recursive: true });
+      await writeJson(path.join(this.cwkDir, file), value);
+      return ok();
+    } catch (error) {
+      return err('PROJECT_WRITE_FAILED', `Could not write ${path.join('.cwk', file)}.`, error.message);
+    }
+  }
+
   async writeProject({ metadata, config, state }) {
     try {
       await fs.mkdir(this.cwkDir, { recursive: true });
