@@ -34,7 +34,7 @@ jobs:
 
       - name: Install CWK and Claude Code
         run: |
-          npm install -g cwk
+          npm install -g claude-window-keeper
           npm install -g @anthropic-ai/claude-code
 
       - name: Run CWK

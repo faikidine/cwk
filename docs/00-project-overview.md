@@ -101,7 +101,7 @@ CWK only automates a simple action that users can already perform manually.
 The intended v1 flow is:
 
 ```bash
-npm install -g cwk
+npm install -g claude-window-keeper
 ```
 
 Then, inside a GitHub repository:

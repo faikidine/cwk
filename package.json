@@ -1,5 +1,5 @@
 {
-  "name": "cwk",
+  "name": "claude-window-keeper",
   "version": "0.1.0",
   "description": "Claude's Window Keeper — keep your Claude Code usage window ready for long sessions.",
   "type": "module",

@@ -48,7 +48,7 @@ The intended user experience is:
 1. Install CWK.
 
 ```bash
-npm install -g cwk
+npm install -g claude-window-keeper
 ```
 
 2. Initialize a repository.

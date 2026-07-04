@@ -16,7 +16,7 @@ CWK does **not** bypass Anthropic limits, increase quotas, or exploit undocument
 ## Quick start
 
 ```bash
-npm install -g cwk
+npm install -g claude-window-keeper
 
 cd your-repository
 cwk init
