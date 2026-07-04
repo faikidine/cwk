@@ -184,11 +184,20 @@ All runtime adapters should eventually follow the same conceptual interface.
 ```ts
 interface RuntimeAdapter {
   name: string
-  install(project: Project): Promise<Result>
-  uninstall(project: Project): Promise<Result>
-  validate(project: Project): Promise<Result>
+  plan(input): RuntimePlan
+  install(plan): Promise<Result>
+  validate(): Promise<Result>
+  diagnose(input): Promise<Diagnosis>
+  repair(input): Promise<Result>
+  uninstall(): Promise<Result>
 }
 ```
+
+`diagnose` inspects the runtime files and describes, in natural language, which parts are missing or damaged (for example: the scheduled trigger, the step that runs `cwk ping`, the token wiring, or the step that commits state updates).
+
+`repair` regenerates the runtime files while preserving user-specific values whenever possible (for example the cron minute of an existing workflow).
+
+The adapter describes **what** is wrong; the engine decides **whether** to repair.
 
 Version 1 may implement only what is required for GitHub Actions.
 

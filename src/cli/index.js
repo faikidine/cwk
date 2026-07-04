@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createPrompter } from './prompt.js';
+import { bold, dim, red, green, yellow } from './colors.js';
 import { createCWK, CWK_VERSION } from '../facade/cwk.js';
 import {
   detectTimezone,
@@ -21,7 +22,7 @@ async function main() {
   if (flags.has('--version')) return console.log(CWK_VERSION);
   if (flags.has('--help') || command === 'help') return help();
 
-  const commands = { init, status, ping, doctor, reset };
+  const commands = { init, status, ping, doctor, repair, reset };
   const run = commands[command];
   if (!run) {
     console.error(`Unknown command: ${command}\n`);
@@ -113,13 +114,36 @@ async function doctor(cwk) {
   const { checks, healthy } = result.value;
   if (asJson) return console.log(JSON.stringify(result.value, null, 2));
 
-  console.log('CWK Doctor\n');
+  console.log(bold('CWK Doctor') + '\n');
   for (const check of checks) {
-    console.log(`${check.ok ? '✓' : '✗'} ${check.name}`);
-    if (!check.ok) console.log(`  ${check.message}`);
+    console.log(`${check.ok ? green('✓') : red('✗')} ${check.name}`);
+    if (!check.ok) console.log(dim(`  ${check.message}`));
   }
-  console.log(healthy ? '\nEverything looks good.' : '\nSome checks failed.');
+  console.log(healthy
+    ? green('\nEverything looks good.')
+    : red('\nSome checks failed.') + ' Run: cwk repair');
   if (!healthy) process.exitCode = EXIT.PROJECT;
+}
+
+async function repair(cwk) {
+  const result = await cwk.repair({ timezone: detectTimezone() });
+  if (!result.ok) return fail(result.error);
+
+  if (asJson) return console.log(JSON.stringify(result.value, null, 2));
+
+  const { repairs } = result.value;
+  console.log(bold('CWK Repair') + '\n');
+
+  if (repairs.length === 0) {
+    return console.log(`${green('✓')} Nothing to repair. Everything looks good.`);
+  }
+
+  for (const item of repairs) {
+    console.log(`${yellow('⚠')} ${bold(item.name)}`);
+    console.log(`  ${red('was:')} ${item.problem}`);
+    console.log(`  ${green('now:')} ${item.action}\n`);
+  }
+  console.log(green(`${repairs.length} problem${repairs.length > 1 ? 's' : ''} repaired.`) + ' Run cwk doctor to verify.');
 }
 
 async function reset(cwk) {
@@ -143,6 +167,7 @@ Commands:
   status    Show the current project status
   ping      Run one synchronization cycle
   doctor    Check project health
+  repair    Fix problems found by doctor, keeping as much as possible
   reset     Remove the CWK project
 
 Options:

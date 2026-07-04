@@ -41,6 +41,7 @@ Then add the `CLAUDE_OAUTH_TOKEN` GitHub Secret (a Claude Code OAuth token), com
 | `cwk status` | Show last/next ping, remaining time, timezone |
 | `cwk ping` | Run one synchronization cycle (`--force` to ping now) |
 | `cwk doctor` | Check project health with actionable fixes |
+| `cwk repair` | Fix what doctor found, preserving as much as possible |
 | `cwk reset` | Remove the CWK project |
 
 Global options: `--json`, `--verbose`, `--version`, `--help`.

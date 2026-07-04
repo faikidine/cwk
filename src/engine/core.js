@@ -135,7 +135,7 @@ export class CWKEngine {
     if (exists) {
       const project = await this.stateStore.loadProject();
       if (!project.ok) {
-        add('Configuration', false, `${project.error.message} Run: cwk reset, then cwk init`);
+        add('Configuration', false, `${project.error.message} Run: cwk repair`);
       } else {
         const issues = validateProject(project.value);
         add('Configuration', !issues.config, issues.config ?? 'Configuration is valid.');
@@ -148,6 +148,124 @@ export class CWKEngine {
     }
 
     return ok({ checks, healthy: checks.every((c) => c.ok) });
+  }
+
+  /**
+   * Fix what doctor complains about, without a reset. Every valid
+   * value is preserved; only broken files are rewritten. Returns the
+   * list of repairs in natural language.
+   */
+  async repair({ timezone } = {}) {
+    const parts = await this.stateStore.loadParts();
+    const everythingMissing = Object.values(parts).every((part) => part.status === 'missing');
+    if (everythingMissing) {
+      return err('PROJECT_NOT_INITIALIZED', 'There is nothing to repair: no CWK project exists here. Run: cwk init');
+    }
+
+    const now = this.clock.now();
+    const repairs = [];
+
+    const brokenFile = (part) => (part.status === 'missing'
+      ? `${part.path} was missing.`
+      : `${part.path} contained unreadable JSON.`);
+
+    // metadata: identity of the project. The creation date cannot be
+    // recovered, everything else can be rebuilt.
+    let metadata = asObject(parts.metadata);
+    if (!metadata) {
+      metadata = { formatVersion: FORMAT_VERSION, createdAt: new Date(now).toISOString(), cwkVersion: this.cwkVersion };
+      repairs.push({
+        name: 'Metadata',
+        problem: brokenFile(parts.metadata),
+        action: 'Recreated it. The original creation date could not be recovered.'
+      });
+      await this.stateStore.savePart('metadata', metadata);
+    } else if (metadata.formatVersion !== FORMAT_VERSION) {
+      const old = metadata.formatVersion;
+      metadata = { ...metadata, formatVersion: FORMAT_VERSION, cwkVersion: this.cwkVersion };
+      repairs.push({
+        name: 'Metadata',
+        problem: `The project declared format version ${JSON.stringify(old)}, which this version of CWK does not support.`,
+        action: `Set the format version to ${FORMAT_VERSION}. Everything else was preserved.`
+      });
+      await this.stateStore.savePart('metadata', metadata);
+    }
+
+    // config: fix invalid fields one by one, keep every valid one.
+    const existingConfig = asObject(parts.config);
+    const config = { ...DEFAULT_CONFIG, timezone: timezone || 'UTC', ...(existingConfig ?? {}) };
+    const fieldFixes = [];
+    if (!Number.isFinite(config.intervalHours) || config.intervalHours <= 0) {
+      config.intervalHours = DEFAULT_CONFIG.intervalHours;
+      fieldFixes.push(`intervalHours was invalid and was restored to ${DEFAULT_CONFIG.intervalHours} hours`);
+    }
+    if (typeof config.timezone !== 'string' || !config.timezone) {
+      config.timezone = timezone || 'UTC';
+      fieldFixes.push(`timezone was missing and was set to ${config.timezone}`);
+    }
+    if (typeof config.runtime !== 'string' || !config.runtime) {
+      config.runtime = DEFAULT_CONFIG.runtime;
+      fieldFixes.push(`runtime was missing and was set to ${DEFAULT_CONFIG.runtime}`);
+    }
+    if (typeof config.model !== 'string' || !config.model) {
+      config.model = DEFAULT_CONFIG.model;
+      fieldFixes.push(`model was missing and was set to ${DEFAULT_CONFIG.model}`);
+    }
+    if (typeof config.prompt !== 'string' || !config.prompt) {
+      config.prompt = DEFAULT_CONFIG.prompt;
+      fieldFixes.push(`prompt was missing and was set to "${DEFAULT_CONFIG.prompt}"`);
+    }
+    if (!existingConfig) {
+      repairs.push({
+        name: 'Configuration',
+        problem: brokenFile(parts.config),
+        action: `Rebuilt it with the defaults (every ${config.intervalHours} hours, timezone ${config.timezone}, model ${config.model}).`
+      });
+      await this.stateStore.savePart('config', config);
+    } else if (fieldFixes.length > 0) {
+      repairs.push({
+        name: 'Configuration',
+        problem: `Some configuration values were invalid: ${fieldFixes.join('; ')}.`,
+        action: 'All other settings were preserved.'
+      });
+      await this.stateStore.savePart('config', config);
+    }
+
+    // state: a lost schedule cannot be recovered. Fall back to "last
+    // ping = now" so the next ping happens one full interval from now,
+    // and never contact Claude without being asked.
+    const existingState = asObject(parts.state);
+    let state = existingState;
+    if (!state || !Number.isFinite(state.lastSuccessfulPing)) {
+      state = { ...(existingState ?? {}), lastSuccessfulPing: now, updatedAt: now };
+      repairs.push({
+        name: 'State',
+        problem: existingState
+          ? 'The recorded last ping was not a valid timestamp, so the schedule was lost.'
+          : brokenFile(parts.state),
+        action: `Restarted the schedule from now: next ping in ${config.intervalHours} hours. Run cwk ping --force if you want to open a window immediately.`
+      });
+      await this.stateStore.savePart('state', state);
+    }
+
+    // runtime: the adapter says what is broken, the engine decides to fix it.
+    const diagnosis = await this.runtime.diagnose();
+    if (!diagnosis.ok) {
+      const { nextPingMs } = getSynchronizationDecision({
+        now,
+        lastSuccessfulPing: state.lastSuccessfulPing,
+        intervalHours: config.intervalHours
+      });
+      const repaired = await this.runtime.repair({ config, nextPingMs });
+      if (!repaired.ok) return repaired;
+      repairs.push({
+        name: 'Runtime',
+        problem: diagnosis.problems.join(' '),
+        action: repaired.value.action
+      });
+    }
+
+    return ok({ repairs, repaired: repairs.length > 0 });
   }
 
   /** Remove the project. The caller is responsible for confirmation. */
@@ -175,6 +293,12 @@ export class CWKEngine {
     }
     return project;
   }
+}
+
+function asObject(part) {
+  if (part.status !== 'ok') return null;
+  const { value } = part;
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 
 export function validateProject({ metadata, config, state }) {

@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createGitHubActionsWorkflow } from '../../src/adapters/github/workflow.js';
+
 const CLI = fileURLToPath(new URL('../../src/cli/index.js', import.meta.url));
 const HOUR = 60 * 60 * 1000;
 
@@ -57,7 +59,7 @@ async function writeProject(dir, { lastSuccessfulPing }) {
     runtime: 'github-actions', intervalHours: 5, timezone: 'UTC', model: 'haiku', prompt: '.'
   }));
   await fs.writeFile(path.join(dir, '.cwk/state.json'), JSON.stringify({ lastSuccessfulPing }));
-  await fs.writeFile(path.join(dir, '.github/workflows/cwk.yml'), 'name: CWK\n');
+  await fs.writeFile(path.join(dir, '.github/workflows/cwk.yml'), createGitHubActionsWorkflow({ cronMinute: 50 }));
 }
 
 test('init creates the project after confirmation', async () => {
@@ -189,6 +191,86 @@ test('doctor passes on a healthy project and flags a missing workflow', async ()
   const broken = await runCli(['doctor'], { cwd: dir });
   assert.equal(broken.code, 2);
   assert.match(broken.stdout, /✗ Runtime/);
+});
+
+test('repair reports nothing to do on a healthy project', async () => {
+  const dir = await makeRepo('repair-healthy');
+  await writeProject(dir, { lastSuccessfulPing: Date.now() });
+  const result = await runCli(['repair'], { cwd: dir });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Nothing to repair/);
+});
+
+test('repair regenerates a missing workflow and doctor passes again', async () => {
+  const dir = await makeRepo('repair-workflow');
+  await writeProject(dir, { lastSuccessfulPing: Date.now() });
+  await fs.rm(path.join(dir, '.github/workflows/cwk.yml'));
+
+  const result = await runCli(['repair'], { cwd: dir });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /workflow.*is missing/i);
+  assert.match(result.stdout, /Regenerated \.github\/workflows\/cwk\.yml/);
+
+  const doctor = await runCli(['doctor'], { cwd: dir });
+  assert.equal(doctor.code, 0, doctor.stdout);
+});
+
+test('repair fixes a damaged workflow while keeping the cron minute', async () => {
+  const dir = await makeRepo('repair-damaged');
+  await writeProject(dir, { lastSuccessfulPing: Date.now() });
+
+  // A workflow with a custom minute but missing the step that runs CWK.
+  const damaged = createGitHubActionsWorkflow({ cronMinute: 17 })
+    .replace('run: cwk ping', 'run: echo nothing');
+  await fs.writeFile(path.join(dir, '.github/workflows/cwk.yml'), damaged);
+
+  const result = await runCli(['repair'], { cwd: dir });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /missing the step that runs cwk ping/);
+  assert.match(result.stdout, /kept your schedule minute 17/);
+
+  const repaired = await fs.readFile(path.join(dir, '.github/workflows/cwk.yml'), 'utf8');
+  assert.match(repaired, /cron: '17 \* \* \* \*'/);
+  assert.match(repaired, /run: cwk ping/);
+});
+
+test('repair rebuilds a corrupted config and an invalid state', async () => {
+  const dir = await makeRepo('repair-files');
+  await writeProject(dir, { lastSuccessfulPing: Date.now() });
+  await fs.writeFile(path.join(dir, '.cwk/config.json'), '{ this is not json');
+  await fs.writeFile(path.join(dir, '.cwk/state.json'), JSON.stringify({ lastSuccessfulPing: 'unknown' }));
+
+  const result = await runCli(['repair'], { cwd: dir });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /unreadable JSON/);
+  assert.match(result.stdout, /Restarted the schedule/);
+
+  const config = JSON.parse(await fs.readFile(path.join(dir, '.cwk/config.json'), 'utf8'));
+  assert.equal(config.intervalHours, 5);
+  const state = JSON.parse(await fs.readFile(path.join(dir, '.cwk/state.json'), 'utf8'));
+  assert.equal(typeof state.lastSuccessfulPing, 'number');
+
+  const doctor = await runCli(['doctor'], { cwd: dir });
+  assert.equal(doctor.code, 0, doctor.stdout);
+});
+
+test('repair fails with exit code 2 when there is no project', async () => {
+  const dir = await makeRepo('repair-none');
+  const result = await runCli(['repair'], { cwd: dir });
+
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /cwk init/);
+});
+
+test('doctor suggests repair when unhealthy', async () => {
+  const dir = await makeRepo('doctor-suggests');
+  await writeProject(dir, { lastSuccessfulPing: Date.now() });
+  await fs.rm(path.join(dir, '.github/workflows/cwk.yml'));
+
+  const result = await runCli(['doctor'], { cwd: dir });
+  assert.equal(result.code, 2);
+  assert.match(result.stdout, /Run: cwk repair/);
 });
 
 test('reset removes the project after confirmation', async () => {
