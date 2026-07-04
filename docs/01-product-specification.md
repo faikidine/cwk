@@ -140,9 +140,15 @@ today 23:50
 tomorrow 18:00
 
 in 2 hours
+
+next monday 21:00
 ```
 
 Whenever possible, CWK should interpret user input rather than rejecting it.
+
+Natural-language parsing is provided by the `chrono-node` library (English, with a French fallback for formats such as `23h50`).
+
+The parsed time must always resolve to the future: a plain time that already passed today rolls over to tomorrow.
 
 ---
 

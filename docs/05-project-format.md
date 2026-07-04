@@ -230,7 +230,7 @@ CWK must never rely only on directory existence.
 ---
 
 # Ownership
-06-adapters.md
+
 Each file has a single owner.
 
 | File | Owner |

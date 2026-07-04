@@ -1,4 +1,7 @@
-export const HOURS = 60 * 60 * 1000;
+import * as chrono from 'chrono-node';
+
+export const MINUTES = 60 * 1000;
+export const HOURS = 60 * MINUTES;
 
 export function nowMs() {
   return Date.now();
@@ -16,28 +19,51 @@ export function formatLocal(ms, timezone) {
   }).format(new Date(ms));
 }
 
+export function formatDuration(ms) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
+export class TimeParseError extends Error {
+  constructor(input, reason) {
+    super(`Could not interpret "${input}" as a future time${reason ? `: ${reason}` : '.'}`);
+    this.name = 'TimeParseError';
+    this.input = input;
+  }
+}
+
+/**
+ * Parse a human time expression into an absolute timestamp (ms).
+ *
+ * Accepts natural language via chrono-node, e.g.:
+ *   "23:50", "11pm", "11:50 PM", "today 23:50", "tomorrow 18:00",
+ *   "in 2 hours", "next monday 21:00", "23h50", "demain 23h50".
+ *
+ * The result is always strictly in the future relative to `referenceMs`.
+ * Time-only inputs that already passed today roll over to tomorrow.
+ */
 export function parseNextTime(input, timezone, referenceMs = Date.now()) {
-  const raw = String(input).trim().toLowerCase();
-  const relative = raw.match(/^in\s+(\d+)\s*(h|hour|hours)$/);
-  if (relative) return referenceMs + Number(relative[1]) * HOURS;
+  const raw = String(input ?? '').trim();
+  if (!raw) throw new TimeParseError(input, 'empty input');
 
-  const cleaned = raw.replace('today ', '').replace('tomorrow ', '');
-  const isTomorrow = raw.startsWith('tomorrow ');
-  const match = cleaned.match(/^(\d{1,2})(?::|h)?(\d{2})?\s*(am|pm)?$/);
-  if (!match) throw new Error(`Invalid time: ${input}`);
+  const reference = { instant: new Date(referenceMs), timezone };
+  const options = { forwardDate: true };
 
-  let hour = Number(match[1]);
-  const minute = match[2] ? Number(match[2]) : 0;
-  const meridiem = match[3];
+  let results = chrono.parse(raw, reference, options);
+  if (results.length === 0) results = chrono.fr.parse(raw, reference, options);
+  if (results.length === 0) throw new TimeParseError(raw);
 
-  if (meridiem === 'pm' && hour < 12) hour += 12;
-  if (meridiem === 'am' && hour === 12) hour = 0;
-  if (hour > 23 || minute > 59) throw new Error(`Invalid time: ${input}`);
+  const result = results[0];
+  let ms = result.date().getTime();
 
-  // Minimal v1 approximation: local machine timezone is used by Date.
-  // Full timezone parsing will be implemented in the engine later.
-  const d = new Date(referenceMs);
-  d.setHours(hour, minute, 0, 0);
-  if (isTomorrow || d.getTime() <= referenceMs) d.setDate(d.getDate() + 1);
-  return d.getTime();
+  // forwardDate usually handles this, but roll time-only inputs that
+  // still resolve to a past instant over to the next day.
+  if (ms <= referenceMs && !result.start.isCertain('day')) ms += 24 * HOURS;
+  if (ms <= referenceMs) throw new TimeParseError(raw, 'it resolves to a past time');
+
+  return ms;
 }
