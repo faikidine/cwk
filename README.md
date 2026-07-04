@@ -5,6 +5,9 @@
 
 > Keep your Claude Code usage window synchronized.
 
+> [!NOTE]
+> CWK is an independent open-source project. It is **not** affiliated with, endorsed by, or sponsored by Anthropic. "Claude", "Claude AI" and "Claude Code" are trademarks of Anthropic, PBC.
+
 CWK is a small, engine-first CLI that keeps your Claude Code usage window aligned with your work schedule. It periodically sends a minimal ping through Claude Code so that whenever you sit down to work, the maximum possible window is ahead of you.
 
 CWK does **not** bypass Anthropic limits, increase quotas, or exploit undocumented behavior. It only automates a single action users already perform manually.
@@ -75,6 +78,10 @@ Pushes that do not change the version are skipped automatically. Requires the `N
 - [ARCHITECTURE.md](ARCHITECTURE.md) — engine-first architecture overview
 - [AGENTS.md](AGENTS.md) — guidelines for AI coding agents
 - [docs/](docs/) — full specification (product, CLI, engine, adapters, roadmap)
+
+## Disclaimer
+
+CWK is an independent community project, not affiliated with, endorsed by, or sponsored by Anthropic in any way. "Claude", "Claude AI" and "Claude Code" are trademarks of Anthropic, PBC, used here only to describe compatibility. CWK does not bypass, extend, or alter any Anthropic usage limit: it only automates a minimal action any user can perform manually.
 
 ## License
 

@@ -10,6 +10,8 @@
 
 CWK is an open-source command-line tool that helps users maintain a predictable Claude Code usage window.
 
+CWK is an independent project. It is not affiliated with, endorsed by, or sponsored by Anthropic. "Claude", "Claude AI" and "Claude Code" are trademarks of Anthropic, PBC.
+
 It does this by running a lightweight synchronization engine at regular intervals. When the engine determines that enough time has passed, it sends a minimal ping through Claude Code and updates its internal state.
 
 CWK is not tied to a single runtime environment.

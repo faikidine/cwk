@@ -175,7 +175,9 @@ Options:
   --json      Machine-readable output
   --verbose   Show error details
   --version   Print CWK version
-  --help      Show this help`);
+  --help      Show this help
+
+CWK is an independent project, not affiliated with Anthropic.`);
 }
 
 function fail(error) {
