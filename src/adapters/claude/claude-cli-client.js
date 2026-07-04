@@ -1,31 +1,53 @@
 import { spawn } from 'node:child_process';
 import { ok, err } from '../../shared/result.js';
 
+const PING_TIMEOUT_MS = 120_000;
+
 export class ClaudeCliClient {
+  constructor({ command = 'claude', timeoutMs = PING_TIMEOUT_MS } = {}) {
+    this.command = command;
+    this.timeoutMs = timeoutMs;
+  }
+
   async ping({ prompt, model }) {
     return new Promise((resolve) => {
-      const child = spawn('claude', ['-p', prompt, '--model', model, '--no-session-persistence'], {
+      const child = spawn(this.command, ['-p', prompt, '--model', model], {
         env: process.env,
         stdio: ['ignore', 'pipe', 'pipe']
       });
 
       let output = '';
+      let settled = false;
+      const settle = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        settle(err('CLAUDE_TIMEOUT', `Claude did not answer within ${this.timeoutMs / 1000}s.`, output));
+      }, this.timeoutMs);
+
       child.stdout.on('data', (d) => { output += d.toString(); });
       child.stderr.on('data', (d) => { output += d.toString(); });
 
       child.on('error', (error) => {
-        resolve(err('CLAUDE_CLI_ERROR', 'Claude CLI could not be executed.', error.message));
+        settle(err('CLAUDE_CLI_ERROR', 'Claude CLI could not be executed. Is Claude Code installed?', error.message));
       });
 
       child.on('close', (code) => {
-        if (code === 0) return resolve(ok({ status: 'success', output }));
+        if (code === 0) return settle(ok({ status: 'success', output }));
+        // Hitting the rate limit still counts as contact: the usage
+        // window is already open, which is exactly what CWK wants.
         if (/rate limit|usage limit|429|too many requests/i.test(output)) {
-          return resolve(ok({ status: 'rate_limited', output }));
+          return settle(ok({ status: 'rate_limited', output }));
         }
         if (/expired|unauthorized|invalid token|authentication|login required|oauth/i.test(output)) {
-          return resolve(err('CLAUDE_AUTH_FAILED', 'Claude authentication failed.', output));
+          return settle(err('CLAUDE_AUTH_FAILED', 'Claude authentication failed. Check your token.', output));
         }
-        return resolve(err('CLAUDE_UNEXPECTED_ERROR', 'Claude returned an unexpected error.', output));
+        settle(err('CLAUDE_UNEXPECTED_ERROR', 'Claude returned an unexpected error.', output));
       });
     });
   }

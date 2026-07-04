@@ -1,4 +1,4 @@
-# CWK — Claude Window Keeper
+# CWK — Claude's Window Keeper
 
 > Keep your Claude Code usage window synchronized.
 

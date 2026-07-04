@@ -103,6 +103,8 @@ The generated workflow should:
 - run `cwk ping`;
 - commit updated `.cwk/state.json` if it changed.
 
+The workflow runs every hour. Its cron minute is aligned (in UTC) with the ping time requested during initialization, so pings land on schedule instead of up to an hour late. This alignment is computed once at install time; it is not scheduling intelligence inside the workflow.
+
 The workflow should not:
 
 - calculate elapsed time;
@@ -121,10 +123,12 @@ It should execute a minimal Claude Code command.
 Example behavior:
 
 ```text
-claude -p "." --model haiku --no-session-persistence
+claude -p "." --model haiku
 ```
 
 The exact command may evolve.
+
+The adapter enforces a timeout so a hanging CLI can never block the runtime.
 
 The adapter must classify results into:
 

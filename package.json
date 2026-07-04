@@ -1,14 +1,25 @@
 {
   "name": "cwk",
   "version": "0.1.0",
-  "description": "Claude Window Keeper — keep your Claude Code usage window ready for long sessions.",
+  "description": "Claude's Window Keeper — keep your Claude Code usage window ready for long sessions.",
   "type": "module",
   "bin": {
     "cwk": "./src/cli/index.js"
   },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node ./src/cli/index.js",
-    "check": "node --check ./src/cli/index.js && find src -name '*.js' -print0 | xargs -0 -n1 node --check"
+    "check": "find src test -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:unit": "node --test \"test/unit/*.test.js\"",
+    "test:integration": "node --test \"test/integration/*.test.js\""
+  },
+  "dependencies": {
+    "chrono-node": "^2.7.0"
   },
   "keywords": ["claude", "claude-code", "github-actions", "cli"],
   "license": "MIT",

@@ -1,105 +1,172 @@
 #!/usr/bin/env node
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import readline from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
-import { createCWK } from '../facade/cwk.js';
-import { detectTimezone, parseNextTime, formatLocal, HOURS } from '../shared/time.js';
-import { createGitHubActionsWorkflow } from '../adapters/github/workflow.js';
+import { createPrompter } from './prompt.js';
+import { createCWK, CWK_VERSION } from '../facade/cwk.js';
+import {
+  detectTimezone,
+  parseNextTime,
+  formatLocal,
+  formatDuration,
+  TimeParseError
+} from '../shared/time.js';
 
-const command = process.argv[2] || 'help';
+const EXIT = { OK: 0, USER: 1, PROJECT: 2, RUNTIME: 3, INTERNAL: 4 };
+
+const args = process.argv.slice(2);
+const flags = new Set(args.filter((a) => a.startsWith('--')));
+const command = args.find((a) => !a.startsWith('--')) || 'help';
+const asJson = flags.has('--json');
+const verbose = flags.has('--verbose');
 
 async function main() {
-  if (command === 'init') return init();
-  if (command === 'status') return status();
-  if (command === 'ping') return ping();
-  if (command === 'doctor') return doctor();
-  if (command === 'reset') return reset();
-  return help();
+  if (flags.has('--version')) return console.log(CWK_VERSION);
+  if (flags.has('--help') || command === 'help') return help();
+
+  const commands = { init, status, ping, doctor, reset };
+  const run = commands[command];
+  if (!run) {
+    console.error(`Unknown command: ${command}\n`);
+    help();
+    process.exitCode = EXIT.USER;
+    return;
+  }
+  await run(createCWK());
 }
 
-async function init() {
-  const cwd = process.cwd();
+async function init(cwk) {
   const timezone = detectTimezone();
-  const rl = readline.createInterface({ input, output });
-  const nextInput = await rl.question('When should the NEXT ping happen?\n> ');
-  const nextPing = parseNextTime(nextInput, timezone);
-  const intervalHours = 5;
-  const lastSuccessfulPing = nextPing - intervalHours * HOURS;
+  const rl = createPrompter();
 
-  console.log('\nCWK Setup Plan\n');
-  console.log(`Timezone: ${timezone}`);
-  console.log(`Runtime: GitHub Actions`);
-  console.log(`Interval: ${intervalHours} hours`);
-  console.log(`Next ping: ${formatLocal(nextPing, timezone)}`);
-  console.log(`Computed last ping: ${formatLocal(lastSuccessfulPing, timezone)}`);
-  console.log('\nFiles to create:');
-  console.log('- .cwk/metadata.json');
-  console.log('- .cwk/config.json');
-  console.log('- .cwk/state.json');
-  console.log('- .github/workflows/cwk.yml');
-  console.log('\nRequired GitHub Secret: CLAUDE_OAUTH_TOKEN');
+  try {
+    console.log('CWK Initialization\n');
+    console.log(`Timezone\n✓ ${timezone}\n`);
+    console.log('Runtime Adapter\n✓ GitHub Actions\n');
 
-  const confirm = await rl.question('\nContinue? (Y/n) ');
-  rl.close();
-  if (/^n/i.test(confirm.trim())) return console.log('Aborted.');
+    let nextPingMs;
+    while (nextPingMs === undefined) {
+      const answer = await rl.question('When should the NEXT ping happen? (e.g. "23:50", "tomorrow 18:00", "in 2 hours")\n> ');
+      if (answer === null) return fail({ code: 'NO_INPUT', message: 'No input received. Run cwk init in an interactive terminal.' });
+      try {
+        nextPingMs = parseNextTime(answer, timezone);
+      } catch (error) {
+        if (!(error instanceof TimeParseError)) throw error;
+        console.log(`\n${error.message}\nPlease try again.\n`);
+      }
+    }
 
-  await fs.mkdir(path.join(cwd, '.cwk'), { recursive: true });
-  await fs.mkdir(path.join(cwd, '.github/workflows'), { recursive: true });
-  await fs.writeFile(path.join(cwd, '.cwk/metadata.json'), JSON.stringify({ formatVersion: 1, createdAt: new Date().toISOString(), cwkVersion: '0.1.0' }, null, 2) + '\n');
-  await fs.writeFile(path.join(cwd, '.cwk/config.json'), JSON.stringify({ runtime: 'github-actions', intervalHours, timezone, model: 'haiku', prompt: '.' }, null, 2) + '\n');
-  await fs.writeFile(path.join(cwd, '.cwk/state.json'), JSON.stringify({ lastSuccessfulPing, updatedAt: Date.now() }, null, 2) + '\n');
-  await fs.writeFile(path.join(cwd, '.github/workflows/cwk.yml'), createGitHubActionsWorkflow());
-  console.log('\nCWK initialized. Add GitHub Secret CLAUDE_OAUTH_TOKEN, commit, and push.');
+    const result = await cwk.init({ nextPingMs, timezone });
+    if (!result.ok) return fail(result.error);
+    const { plan } = result.value;
+
+    console.log('\nCWK Setup Plan\n');
+    console.log(`Runtime\n✓ ${plan.runtime.name}\n`);
+    console.log(`Timezone\n✓ ${plan.config.timezone}\n`);
+    console.log(`Interval\n✓ every ${plan.config.intervalHours} hours\n`);
+    console.log(`Next Ping\n✓ ${formatLocal(plan.nextPingMs, plan.config.timezone)}\n`);
+    console.log('Files to create\n');
+    for (const file of plan.files) console.log(`✓ ${file}`);
+    console.log('\nRequired\n');
+    for (const requirement of plan.runtime.requirements) console.log(`- ${requirement}`);
+
+    const confirm = await rl.question('\nContinue? (Y/n) ');
+    if (confirm === null || /^n/i.test(confirm.trim())) return console.log('Aborted. Nothing was created.');
+
+    const applied = await cwk.applyInit(plan);
+    if (!applied.ok) return fail(applied.error);
+
+    console.log('\nCWK initialized.');
+    console.log('Next steps: add the GitHub Secret CLAUDE_OAUTH_TOKEN, commit, and push.');
+  } finally {
+    rl.close();
+  }
 }
 
-async function status() {
-  const cwk = createCWK();
+async function status(cwk) {
   const result = await cwk.status();
   if (!result.ok) return fail(result.error);
+
   const { config, state, decision } = result.value;
+  if (asJson) return console.log(JSON.stringify(result.value, null, 2));
+
   console.log('CWK Status\n');
-  console.log(`Runtime: ${config.runtime}`);
-  console.log(`Timezone: ${config.timezone}`);
-  console.log(`Last ping: ${formatLocal(state.lastSuccessfulPing, config.timezone)}`);
-  console.log(`Decision: ${decision.action}`);
-  console.log(`Remaining: ${Math.ceil(decision.remainingMs / 60000)} minutes`);
+  console.log('Project\n✓ Initialized\n');
+  console.log(`Runtime\n${config.runtime}\n`);
+  console.log(`Last Ping\n${formatLocal(state.lastSuccessfulPing, config.timezone)}\n`);
+  console.log(`Next Ping\n${formatLocal(decision.nextPingMs, config.timezone)}\n`);
+  console.log(`Remaining\n${decision.action === 'PING' ? 'due now' : formatDuration(decision.remainingMs)}\n`);
+  console.log(`Timezone\n${config.timezone}`);
 }
 
-async function ping() {
-  const cwk = createCWK();
-  const result = await cwk.synchronize({ force: process.argv.includes('--force') });
+async function ping(cwk) {
+  const result = await cwk.ping({ force: flags.has('--force') });
   if (!result.ok) return fail(result.error);
-  console.log(result.value.action === 'PING' ? 'Synchronization completed successfully.' : 'No synchronization required.');
+
+  if (asJson) return console.log(JSON.stringify(result.value, null, 2));
+  console.log(result.value.action === 'PING'
+    ? 'Synchronization completed successfully.'
+    : 'No synchronization required.');
 }
 
-async function doctor() {
-  const cwk = createCWK();
-  const result = await cwk.status();
+async function doctor(cwk) {
+  const result = await cwk.doctor();
   if (!result.ok) return fail(result.error);
-  console.log('CWK Doctor\n✓ Project\n✓ Configuration\n✓ State\n✓ Workflow assumed present');
+
+  const { checks, healthy } = result.value;
+  if (asJson) return console.log(JSON.stringify(result.value, null, 2));
+
+  console.log('CWK Doctor\n');
+  for (const check of checks) {
+    console.log(`${check.ok ? '✓' : '✗'} ${check.name}`);
+    if (!check.ok) console.log(`  ${check.message}`);
+  }
+  console.log(healthy ? '\nEverything looks good.' : '\nSome checks failed.');
+  if (!healthy) process.exitCode = EXIT.PROJECT;
 }
 
-async function reset() {
-  const rl = readline.createInterface({ input, output });
-  const confirm = await rl.question('This will remove .cwk/. Continue? (y/N) ');
+async function reset(cwk) {
+  const rl = createPrompter();
+  const confirm = await rl.question('This will remove the current CWK project (.cwk/ and the runtime workflow).\n\nContinue? (y/N) ');
   rl.close();
-  if (!/^y/i.test(confirm.trim())) return console.log('Aborted.');
-  await fs.rm(path.join(process.cwd(), '.cwk'), { recursive: true, force: true });
-  console.log('CWK project reset.');
+  if (confirm === null || !/^y/i.test(confirm.trim())) return console.log('Aborted.');
+
+  const result = await cwk.reset();
+  if (!result.ok) return fail(result.error);
+  console.log('CWK project removed.');
 }
 
 function help() {
-  console.log('CWK\n\nCommands:\n  init\n  status\n  ping [--force]\n  doctor\n  reset');
+  console.log(`CWK ${CWK_VERSION} — Claude's Window Keeper
+
+Usage: cwk <command> [options]
+
+Commands:
+  init      Initialize a CWK project in this repository
+  status    Show the current project status
+  ping      Run one synchronization cycle
+  doctor    Check project health
+  reset     Remove the CWK project
+
+Options:
+  --force     (ping) Ping even if not due yet
+  --json      Machine-readable output
+  --verbose   Show error details
+  --version   Print CWK version
+  --help      Show this help`);
 }
 
 function fail(error) {
-  console.error(`${error.code}: ${error.message}`);
-  if (error.details) console.error(error.details);
-  process.exitCode = 1;
+  console.error(`${error.message}`);
+  if (verbose && error.details) console.error(`\n${error.details}`);
+
+  if (error.code?.startsWith('CLAUDE_') || error.code?.startsWith('RUNTIME_')) {
+    process.exitCode = EXIT.RUNTIME;
+  } else if (error.code?.startsWith('PROJECT_') || error.code === 'STATE_WRITE_FAILED' || error.code === 'WORKFLOW_FILE_MISSING') {
+    process.exitCode = EXIT.PROJECT;
+  } else {
+    process.exitCode = EXIT.USER;
+  }
 }
 
 main().catch((error) => {
-  console.error(error);
-  process.exitCode = 4;
+  console.error(verbose ? error : `Internal error: ${error.message}`);
+  process.exitCode = EXIT.INTERNAL;
 });
