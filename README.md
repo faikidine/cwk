@@ -49,9 +49,20 @@ Then add the `CLAUDE_OAUTH_TOKEN` GitHub Secret (a Claude Code OAuth token), com
 | `cwk ping` | Run one synchronization cycle (`--force` to ping now) |
 | `cwk doctor` | Check project health with actionable fixes |
 | `cwk repair` | Fix what doctor found, preserving as much as possible |
+| `cwk update` | Bring an existing project to the current CWK format |
 | `cwk reset` | Remove the CWK project |
 
 Global options: `--json`, `--verbose`, `--version`, `--help`.
+
+## Updating an existing repository
+
+The generated workflow installs the latest CWK on every run, so the engine updates itself. After a new CWK release, bring the files living in your repository up to date with:
+
+```bash
+npm install -g claude-window-keeper@latest
+cwk update      # regenerates outdated runtime files, adds new settings
+git add -A && git commit -m "chore: update cwk runtime" && git push
+```
 
 ## Development
 

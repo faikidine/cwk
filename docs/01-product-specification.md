@@ -222,6 +222,22 @@ When information cannot be recovered, repair falls back to safe defaults and say
 
 ---
 
+## Update
+
+CWK should be able to bring an existing project to the current format after the package has been updated.
+
+Update must:
+
+- only change what is actually outdated;
+- preserve user-specific values (such as the runtime schedule alignment);
+- add newly introduced configuration fields explicitly, with their defaults;
+- be idempotent: running it on a current project changes nothing;
+- tell the user what changed and what to do next (commit and push).
+
+Repair fixes what is broken. Update modernizes what is old. The two responsibilities must not be mixed.
+
+---
+
 ## Reset
 
 CWK should allow the current project to be reset.

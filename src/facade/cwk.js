@@ -29,6 +29,7 @@ export function createCWK({ cwd = process.cwd(), clock = { now: () => Date.now()
     ping: (options) => engine.synchronize(options),
     doctor: () => engine.doctor(),
     repair: (input) => engine.repair(input),
+    update: () => engine.update(),
     reset: () => engine.reset()
   };
 }

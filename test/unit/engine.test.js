@@ -9,7 +9,7 @@ const NOW = Date.parse('2026-07-04T10:00:00Z');
 function makeProject(overrides = {}) {
   return {
     metadata: { formatVersion: FORMAT_VERSION, createdAt: '2026-07-01T00:00:00Z', cwkVersion: '0.1.0' },
-    config: { runtime: 'github-actions', intervalHours: 5, timezone: 'UTC', model: 'haiku', prompt: '.' },
+    config: { runtime: 'github-actions', intervalHours: 5, patienceMinutes: 25, timezone: 'UTC', model: 'haiku', prompt: '.' },
     state: { lastSuccessfulPing: NOW - 6 * HOUR, updatedAt: NOW - 6 * HOUR },
     ...overrides
   };
@@ -28,6 +28,7 @@ function makeFakes({
   project = makeProject(),
   parts,
   diagnosis = { ok: true, problems: [] },
+  runtimeOutdated = { outdated: false },
   pingResult = ok({ status: 'success', output: '' })
 } = {}) {
   const calls = { pings: 0, savedStates: [], savedParts: [], written: [], installed: [], runtimeRepairs: [], removed: 0, uninstalled: 0 };
@@ -57,6 +58,7 @@ function makeFakes({
       install: async (plan) => { calls.installed.push(plan); return ok(); },
       validate: async () => ok(),
       diagnose: async () => diagnosis,
+      outdated: async () => runtimeOutdated,
       repair: async ({ nextPingMs }) => { calls.runtimeRepairs.push(nextPingMs); return ok({ action: 'Regenerated the workflow.' }); },
       uninstall: async () => { calls.uninstalled += 1; return ok(); }
     },
@@ -321,6 +323,71 @@ test('repair delegates runtime problems to the adapter', async () => {
   assert.match(entry.problem, /cwk ping/);
   assert.match(entry.action, /Regenerated/);
   assert.equal(calls.runtimeRepairs.length, 1);
+});
+
+test('update adds newly introduced config fields with their defaults', async () => {
+  const project = makeProject();
+  delete project.config.patienceMinutes;
+  const { engine, calls } = makeFakes({ project });
+
+  const result = await engine.update();
+  assert.equal(result.ok, true);
+  assert.equal(result.value.upToDate, false);
+
+  const entry = result.value.changes.find((c) => c.name === 'Configuration');
+  assert.match(entry.problem, /patienceMinutes did not exist/);
+
+  const saved = calls.savedParts.find((p) => p.key === 'config');
+  assert.equal(saved.value.patienceMinutes, 25);
+  assert.equal(saved.value.model, 'haiku');
+});
+
+test('update regenerates an outdated runtime', async () => {
+  const { engine, calls } = makeFakes({
+    runtimeOutdated: { outdated: true, reason: 'The workflow did not match the current format.' }
+  });
+
+  const result = await engine.update();
+  const entry = result.value.changes.find((c) => c.name === 'Runtime');
+  assert.match(entry.problem, /did not match/);
+  assert.equal(calls.runtimeRepairs.length, 1);
+});
+
+test('update refreshes cwkVersion in metadata when something changed', async () => {
+  const project = makeProject({ metadata: { formatVersion: FORMAT_VERSION, createdAt: 'x', cwkVersion: '0.0.9' } });
+  const { engine, calls } = makeFakes({
+    project,
+    runtimeOutdated: { outdated: true, reason: 'old' }
+  });
+
+  await engine.update();
+  const saved = calls.savedParts.find((p) => p.key === 'metadata');
+  assert.equal(saved.value.cwkVersion, '0.1.0');
+  assert.equal(saved.value.createdAt, 'x');
+});
+
+test('update is a no-op on a current project', async () => {
+  const { engine, calls } = makeFakes();
+  const result = await engine.update();
+
+  assert.equal(result.value.upToDate, true);
+  assert.deepEqual(result.value.changes, []);
+  assert.equal(calls.savedParts.length, 0);
+  assert.equal(calls.runtimeRepairs.length, 0);
+});
+
+test('update fails cleanly on an uninitialized project', async () => {
+  const { engine } = makeFakes({ exists: false });
+  const result = await engine.update();
+  assert.equal(result.error.code, 'PROJECT_NOT_INITIALIZED');
+});
+
+test('doctor signals when an update is available', async () => {
+  const { engine } = makeFakes({ runtimeOutdated: { outdated: true, reason: 'old' } });
+  const result = await engine.doctor();
+
+  assert.equal(result.value.healthy, true); // outdated is not unhealthy
+  assert.equal(result.value.updateAvailable, true);
 });
 
 test('validateProject flags unsupported format versions', () => {
