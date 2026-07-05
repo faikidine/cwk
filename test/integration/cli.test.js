@@ -56,7 +56,7 @@ async function writeProject(dir, { lastSuccessfulPing }) {
     formatVersion: 1, createdAt: new Date().toISOString(), cwkVersion: '0.1.0'
   }));
   await fs.writeFile(path.join(dir, '.cwk/config.json'), JSON.stringify({
-    runtime: 'github-actions', intervalHours: 5, timezone: 'UTC', model: 'haiku', prompt: '.'
+    runtime: 'github-actions', intervalHours: 5, patienceMinutes: 25, timezone: 'UTC', model: 'haiku', prompt: '.'
   }));
   await fs.writeFile(path.join(dir, '.cwk/state.json'), JSON.stringify({ lastSuccessfulPing }));
   await fs.writeFile(path.join(dir, '.github/workflows/cwk.yml'), createGitHubActionsWorkflow({ cronMinute: 50 }));
@@ -265,24 +265,49 @@ test('repair fixes a damaged workflow while keeping the cron minute', async () =
   assert.match(repaired, /run: cwk ping/);
 });
 
-test('repair upgrades an old single-cron workflow to three wake-ups', async () => {
-  const dir = await makeRepo('repair-old-cron');
+test('update migrates an old repository (workflow + config), then is a no-op', async () => {
+  const dir = await makeRepo('update-old');
   await writeProject(dir, { lastSuccessfulPing: Date.now() });
 
-  // A pre-patience workflow: valid, but only one scheduled wake-up.
+  // Simulate a repo initialized by an older CWK: single-cron workflow
+  // and a config without the patienceMinutes setting.
   const oldFormat = createGitHubActionsWorkflow({ cronMinute: 50 })
-    .replace(/- cron: '10 \* \* \* \*'\n/, '')
+    .replace(/ {4}- cron: '10 \* \* \* \*'\n/, '')
     .replace(/ {4}- cron: '30 \* \* \* \*'\n/, '');
   await fs.writeFile(path.join(dir, '.github/workflows/cwk.yml'), oldFormat);
+  await fs.writeFile(path.join(dir, '.cwk/config.json'), JSON.stringify({
+    runtime: 'github-actions', intervalHours: 5, timezone: 'UTC', model: 'haiku', prompt: '.'
+  }));
 
-  const result = await runCli(['repair'], { cwd: dir });
+  // doctor stays healthy but hints at the update.
+  const doctor = await runCli(['doctor'], { cwd: dir });
+  assert.equal(doctor.code, 0, doctor.stdout);
+  assert.match(doctor.stdout, /Run: cwk update/);
+
+  const result = await runCli(['update'], { cwd: dir });
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /only once per hour/);
+  assert.match(result.stdout, /patienceMinutes did not exist/);
   assert.match(result.stdout, /kept your schedule minute 50/);
+  assert.match(result.stdout, /Commit and push/);
 
   const upgraded = await fs.readFile(path.join(dir, '.github/workflows/cwk.yml'), 'utf8');
   assert.equal((upgraded.match(/- cron:/g) || []).length, 3);
   assert.match(upgraded, /- cron: '50 \* \* \* \*'/);
+  const config = JSON.parse(await fs.readFile(path.join(dir, '.cwk/config.json'), 'utf8'));
+  assert.equal(config.patienceMinutes, 25);
+  assert.equal(config.timezone, 'UTC');
+
+  const again = await runCli(['update'], { cwd: dir });
+  assert.equal(again.code, 0, again.stderr);
+  assert.match(again.stdout, /Already up to date/);
+});
+
+test('update fails with exit code 2 when there is no project', async () => {
+  const dir = await makeRepo('update-none');
+  const result = await runCli(['update'], { cwd: dir });
+
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /cwk init/);
 });
 
 test('repair rebuilds a corrupted config and an invalid state', async () => {

@@ -156,7 +156,14 @@ export class CWKEngine {
       add('Runtime', runtime.ok, runtime.ok ? 'Runtime files present.' : `${runtime.error.message}`);
     }
 
-    return ok({ checks, healthy: checks.every((c) => c.ok) });
+    // Outdated files are not a health problem, only a hint.
+    let updateAvailable = false;
+    if (exists) {
+      const runtimeState = await this.runtime.outdated();
+      updateAvailable = runtimeState.outdated === true;
+    }
+
+    return ok({ checks, healthy: checks.every((c) => c.ok), updateAvailable });
   }
 
   /**
@@ -279,6 +286,61 @@ export class CWKEngine {
     }
 
     return ok({ repairs, repaired: repairs.length > 0 });
+  }
+
+  /**
+   * Bring a healthy-but-old project to the current format: add newly
+   * introduced config fields with their defaults, refresh metadata,
+   * regenerate outdated runtime files. Idempotent; repair handles
+   * broken projects, update handles old ones.
+   */
+  async update() {
+    const project = await this.loadValidProject();
+    if (!project.ok) return project;
+
+    const { metadata, config, state } = project.value;
+    const changes = [];
+
+    // Newly introduced configuration fields, written explicitly so the
+    // user can see and tune them.
+    const newConfig = { ...config };
+    for (const [key, value] of Object.entries(DEFAULT_CONFIG)) {
+      if (newConfig[key] === undefined) {
+        newConfig[key] = value;
+        changes.push({
+          name: 'Configuration',
+          problem: `The setting ${key} did not exist yet.`,
+          action: `Added it with the default (${JSON.stringify(value)}).`
+        });
+      }
+    }
+    if (changes.length > 0) {
+      const saved = await this.stateStore.savePart('config', newConfig);
+      if (saved && saved.ok === false) return saved;
+    }
+
+    const runtimeState = await this.runtime.outdated();
+    if (runtimeState.outdated) {
+      const { nextPingMs } = getSynchronizationDecision({
+        now: this.clock.now(),
+        lastSuccessfulPing: state.lastSuccessfulPing,
+        intervalHours: newConfig.intervalHours
+      });
+      const regenerated = await this.runtime.repair({ config: newConfig, nextPingMs });
+      if (!regenerated.ok) return regenerated;
+      changes.push({
+        name: 'Runtime',
+        problem: runtimeState.reason,
+        action: regenerated.value.action
+      });
+    }
+
+    if (changes.length > 0 && metadata.cwkVersion !== this.cwkVersion) {
+      const saved = await this.stateStore.savePart('metadata', { ...metadata, cwkVersion: this.cwkVersion });
+      if (saved && saved.ok === false) return saved;
+    }
+
+    return ok({ changes, upToDate: changes.length === 0 });
   }
 
   /** Remove the project. The caller is responsible for confirmation. */
