@@ -6,9 +6,16 @@ export const FORMAT_VERSION = 1;
 export const DEFAULT_CONFIG = Object.freeze({
   runtime: 'github-actions',
   intervalHours: 5,
+  patienceMinutes: 25,
   model: 'haiku',
   prompt: '.'
 });
+
+// Older projects may not have patienceMinutes in their config.
+function patienceMsOf(config) {
+  const minutes = Number.isFinite(config.patienceMinutes) ? config.patienceMinutes : DEFAULT_CONFIG.patienceMinutes;
+  return minutes * 60 * 1000;
+}
 
 /**
  * The Core Engine. Owns every business rule: scheduling, project
@@ -88,7 +95,8 @@ export class CWKEngine {
     const decision = getSynchronizationDecision({
       now,
       lastSuccessfulPing: state.lastSuccessfulPing,
-      intervalHours: config.intervalHours
+      intervalHours: config.intervalHours,
+      patienceMs: patienceMsOf(config)
     });
 
     return ok({ now, metadata, config, state, decision });
@@ -107,11 +115,12 @@ export class CWKEngine {
     const decision = getSynchronizationDecision({
       now,
       lastSuccessfulPing: state.lastSuccessfulPing,
-      intervalHours: config.intervalHours
+      intervalHours: config.intervalHours,
+      patienceMs: patienceMsOf(config)
     });
 
-    if (!force && decision.action === 'WAIT') {
-      return ok({ action: 'WAIT', decision });
+    if (!force && decision.action !== 'PING') {
+      return ok({ action: decision.action, decision });
     }
 
     const ping = await this.claudeClient.ping({ prompt: config.prompt, model: config.model });
@@ -198,6 +207,10 @@ export class CWKEngine {
     if (!Number.isFinite(config.intervalHours) || config.intervalHours <= 0) {
       config.intervalHours = DEFAULT_CONFIG.intervalHours;
       fieldFixes.push(`intervalHours was invalid and was restored to ${DEFAULT_CONFIG.intervalHours} hours`);
+    }
+    if (config.patienceMinutes !== undefined && (!Number.isFinite(config.patienceMinutes) || config.patienceMinutes < 0)) {
+      config.patienceMinutes = DEFAULT_CONFIG.patienceMinutes;
+      fieldFixes.push(`patienceMinutes was invalid and was restored to ${DEFAULT_CONFIG.patienceMinutes} minutes`);
     }
     if (typeof config.timezone !== 'string' || !config.timezone) {
       config.timezone = timezone || 'UTC';
@@ -309,6 +322,8 @@ export function validateProject({ metadata, config, state }) {
   }
   if (!config || !Number.isFinite(config.intervalHours) || config.intervalHours <= 0) {
     issues.config = 'Invalid configuration: intervalHours must be a positive number.';
+  } else if (config.patienceMinutes !== undefined && (!Number.isFinite(config.patienceMinutes) || config.patienceMinutes < 0)) {
+    issues.config = 'Invalid configuration: patienceMinutes must be a non-negative number.';
   } else if (typeof config.timezone !== 'string' || !config.timezone) {
     issues.config = 'Invalid configuration: timezone is missing.';
   } else if (typeof config.runtime !== 'string' || !config.runtime) {

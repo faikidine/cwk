@@ -67,6 +67,11 @@ export class GitHubActionsRuntime {
       .filter(([pattern]) => !pattern.test(content))
       .map(([, part]) => `The workflow is missing ${part}.`);
 
+    const cronCount = (content.match(/- cron:/g) || []).length;
+    if (cronCount > 0 && cronCount < 3) {
+      problems.push(`The workflow wakes CWK only ${cronCount === 1 ? 'once' : 'twice'} per hour (an older format; three wake-ups protect against skipped GitHub cron runs).`);
+    }
+
     return { ok: problems.length === 0, problems };
   }
 

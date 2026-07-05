@@ -78,8 +78,8 @@ test('init creates the project after confirmation', async () => {
   assert.equal(typeof state.lastSuccessfulPing, 'number');
 
   const workflow = await fs.readFile(path.join(dir, '.github/workflows/cwk.yml'), 'utf8');
-  // The cron minute is aligned with the requested ping time (in UTC).
-  assert.match(workflow, /cron: '\d{1,2} \* \* \* \*'/);
+  // Three wake-ups per hour, the first aligned with the ping time (UTC).
+  assert.equal((workflow.match(/- cron: '\d{1,2} \* \* \* \*'/g) || []).length, 3);
   assert.match(workflow, /cwk ping/);
 });
 
@@ -152,6 +152,36 @@ test('ping contacts claude and updates state when due', async () => {
 
   const state = JSON.parse(await fs.readFile(path.join(dir, '.cwk/state.json'), 'utf8'));
   assert.ok(state.lastSuccessfulPing > oldPing);
+});
+
+test('ping waits for a close target, then pings exactly on time', async () => {
+  const dir = await makeRepo('ping-patient');
+  // The next ping is due in ~1.5s: within patience, so the CLI waits.
+  await writeProject(dir, { lastSuccessfulPing: Date.now() - 5 * HOUR + 1500 });
+  const before = Date.now();
+  // Shrink the 1-minute safety margin so the test stays fast.
+  const result = await runCli(['ping'], { cwd: dir, env: { CWK_WAIT_MARGIN_MS: '500' } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Waiting to ping exactly on time/);
+  assert.match(result.stdout, /Synchronization completed successfully/);
+  assert.ok(Date.now() - before >= 1500, 'should have actually waited');
+
+  const state = JSON.parse(await fs.readFile(path.join(dir, '.cwk/state.json'), 'utf8'));
+  assert.ok(state.lastSuccessfulPing >= before + 1500);
+});
+
+test('ping --no-wait reports and exits without pinging', async () => {
+  const dir = await makeRepo('ping-no-wait');
+  const oldPing = Date.now() - 5 * HOUR + 60_000; // due in 1 minute
+  await writeProject(dir, { lastSuccessfulPing: oldPing });
+  const result = await runCli(['ping', '--no-wait'], { cwd: dir });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /No synchronization required/);
+
+  const state = JSON.parse(await fs.readFile(path.join(dir, '.cwk/state.json'), 'utf8'));
+  assert.equal(state.lastSuccessfulPing, oldPing);
 });
 
 test('ping --force pings even when not due', async () => {
@@ -233,6 +263,26 @@ test('repair fixes a damaged workflow while keeping the cron minute', async () =
   const repaired = await fs.readFile(path.join(dir, '.github/workflows/cwk.yml'), 'utf8');
   assert.match(repaired, /cron: '17 \* \* \* \*'/);
   assert.match(repaired, /run: cwk ping/);
+});
+
+test('repair upgrades an old single-cron workflow to three wake-ups', async () => {
+  const dir = await makeRepo('repair-old-cron');
+  await writeProject(dir, { lastSuccessfulPing: Date.now() });
+
+  // A pre-patience workflow: valid, but only one scheduled wake-up.
+  const oldFormat = createGitHubActionsWorkflow({ cronMinute: 50 })
+    .replace(/- cron: '10 \* \* \* \*'\n/, '')
+    .replace(/ {4}- cron: '30 \* \* \* \*'\n/, '');
+  await fs.writeFile(path.join(dir, '.github/workflows/cwk.yml'), oldFormat);
+
+  const result = await runCli(['repair'], { cwd: dir });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /only once per hour/);
+  assert.match(result.stdout, /kept your schedule minute 50/);
+
+  const upgraded = await fs.readFile(path.join(dir, '.github/workflows/cwk.yml'), 'utf8');
+  assert.equal((upgraded.match(/- cron:/g) || []).length, 3);
+  assert.match(upgraded, /- cron: '50 \* \* \* \*'/);
 });
 
 test('repair rebuilds a corrupted config and an invalid state', async () => {

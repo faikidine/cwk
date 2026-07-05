@@ -149,6 +149,7 @@ Inputs:
 
 - previous successful ping
 - configured interval
+- configured patience
 - current time
 
 Output:
@@ -158,10 +159,30 @@ WAIT
 
 or
 
+WAIT_THEN_PING
+
+or
+
 PING
 ```
 
 Nothing else.
+
+---
+
+# Patience
+
+Runtimes wake CWK at approximate times. Without patience, a wake-up
+arriving two minutes before the target would answer WAIT and the ping
+would be delayed until the next wake-up.
+
+When the remaining time is within the configured patience
+(`patienceMinutes`, default 25), the engine answers WAIT_THEN_PING with
+the exact remaining time. The caller is expected to wait that long and
+then run synchronization again, so the ping lands exactly on schedule.
+
+The engine never sleeps itself: it only decides. Waiting is executed by
+the interface or runtime layer.
 
 ---
 

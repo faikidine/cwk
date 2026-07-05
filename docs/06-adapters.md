@@ -103,7 +103,9 @@ The generated workflow should:
 - run `cwk ping`;
 - commit updated `.cwk/state.json` if it changed.
 
-The workflow runs every hour. Its cron minute is aligned (in UTC) with the ping time requested during initialization, so pings land on schedule instead of up to an hour late. This alignment is computed once at install time; it is not scheduling intelligence inside the workflow.
+The workflow wakes CWK three times per hour (the minute aligned in UTC with the requested ping time, then +20 and +40 minutes). GitHub Actions cron is best-effort: runs can start late or be skipped entirely. Redundant wake-ups guarantee that at least one run lands within 20 minutes of the target, and the engine's patience (WAIT_THEN_PING) turns that early wake-up into a ping at the exact scheduled time. The alignment is computed once at install time; it is not scheduling intelligence inside the workflow.
+
+Because a run may deliberately wait up to the configured patience before pinging, the workflow timeout accounts for it (45 minutes).
 
 The workflow should not:
 

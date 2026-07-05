@@ -16,8 +16,9 @@ CWK does **not** bypass Anthropic limits, increase quotas, or exploit undocument
 
 1. You tell CWK when the **next** ping should happen.
 2. CWK stores minimal state in `.cwk/` and generates a GitHub Actions workflow.
-3. The workflow wakes CWK every hour; the Core Engine decides `WAIT` or `PING`.
-4. When a ping is due, CWK runs a minimal Claude Code command and updates its state.
+3. The workflow wakes CWK three times per hour; the Core Engine decides `WAIT`, `WAIT_THEN_PING` or `PING`.
+4. GitHub cron fires early, late or not at all — so when the target is close, CWK simply waits inside the run and pings at the exact scheduled time.
+5. When a ping is due, CWK runs a minimal Claude Code command and updates its state.
 
 ## Quick start
 
@@ -71,7 +72,7 @@ Releases are fully automated (Release workflow):
 2. Push to `main` (directly or via PR).
 3. The workflow runs the tests, publishes `claude-window-keeper` to npm with provenance, creates the `vX.Y.Z` tag and the GitHub release.
 
-Pushes that do not change the version are skipped automatically. Requires the `NPM_TOKEN` repository secret (an npm automation token).
+Pushes that do not change the version are skipped automatically. Publishing uses [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC): no npm token is stored in the repository.
 
 ## Documentation
 

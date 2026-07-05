@@ -158,6 +158,11 @@ CWK periodically evaluates whether a ping is required.
 
 If no ping is necessary, CWK exits immediately.
 
+If the next ping is close (within the configured patience), CWK waits
+for the exact moment instead of giving up, then pings on schedule. This
+makes CWK resilient to imprecise runtimes such as GitHub Actions cron,
+which may fire early, late, or skip runs entirely.
+
 If a ping is required:
 
 - Claude Code is contacted;

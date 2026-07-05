@@ -3,19 +3,32 @@ const HOUR_MS = 60 * 60 * 1000;
 /**
  * The single scheduling rule of CWK.
  *
- * Given the last successful ping and the configured interval, decide
- * whether a ping is due now. Returns PING or WAIT, nothing else.
+ * Given the last successful ping, the configured interval and the
+ * configured patience, decide what should happen now:
+ *
+ *   PING            the ping is due
+ *   WAIT_THEN_PING  the ping is due within the patience window; the
+ *                   caller should wait remainingMs, then synchronize
+ *                   again so the ping lands exactly on schedule
+ *   WAIT            nothing to do for a while
+ *
+ * Patience exists because runtimes wake CWK at approximate times:
+ * without it, waking up two minutes early would delay the ping until
+ * the next wake-up.
  */
-export function getSynchronizationDecision({ now, lastSuccessfulPing, intervalHours }) {
+export function getSynchronizationDecision({ now, lastSuccessfulPing, intervalHours, patienceMs = 0 }) {
   const intervalMs = intervalHours * HOUR_MS;
   const nextPingMs = lastSuccessfulPing + intervalMs;
   const elapsedMs = now - lastSuccessfulPing;
+  const remainingMs = nextPingMs - now;
 
-  if (now >= nextPingMs) {
+  if (remainingMs <= 0) {
     return { action: 'PING', elapsedMs, remainingMs: 0, nextPingMs };
   }
-
-  return { action: 'WAIT', elapsedMs, remainingMs: nextPingMs - now, nextPingMs };
+  if (remainingMs <= patienceMs) {
+    return { action: 'WAIT_THEN_PING', elapsedMs, remainingMs, nextPingMs };
+  }
+  return { action: 'WAIT', elapsedMs, remainingMs, nextPingMs };
 }
 
 /**

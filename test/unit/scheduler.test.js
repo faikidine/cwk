@@ -44,6 +44,37 @@ test('waits when the last ping is in the future (fresh init)', () => {
   assert.equal(decision.remainingMs, 7 * HOUR);
 });
 
+test('waits-then-pings when the ping is due within the patience window', () => {
+  const decision = getSynchronizationDecision({
+    now: 5 * HOUR - 2 * 60 * 1000, // 2 minutes before the target
+    lastSuccessfulPing: 0,
+    intervalHours: 5,
+    patienceMs: 25 * 60 * 1000
+  });
+  assert.equal(decision.action, 'WAIT_THEN_PING');
+  assert.equal(decision.remainingMs, 2 * 60 * 1000);
+});
+
+test('waits normally when the remaining time exceeds the patience', () => {
+  const decision = getSynchronizationDecision({
+    now: 4 * HOUR,
+    lastSuccessfulPing: 0,
+    intervalHours: 5,
+    patienceMs: 25 * 60 * 1000
+  });
+  assert.equal(decision.action, 'WAIT');
+});
+
+test('zero patience disables waiting entirely', () => {
+  const decision = getSynchronizationDecision({
+    now: 5 * HOUR - 1,
+    lastSuccessfulPing: 0,
+    intervalHours: 5,
+    patienceMs: 0
+  });
+  assert.equal(decision.action, 'WAIT');
+});
+
 test('initial state places the next ping at the requested time', () => {
   const nextPingMs = 100 * HOUR;
   const state = computeInitialState({ nextPingMs, intervalHours: 5 });

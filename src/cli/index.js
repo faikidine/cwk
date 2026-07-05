@@ -98,13 +98,30 @@ async function status(cwk) {
 }
 
 async function ping(cwk) {
-  const result = await cwk.ping({ force: flags.has('--force') });
+  let result = await cwk.ping({ force: flags.has('--force') });
   if (!result.ok) return fail(result.error);
+
+  // The engine decided the ping is due soon: wait for the exact moment
+  // instead of losing the slot until the next runtime wake-up. The
+  // margin absorbs clock drift — pinging a minute late only shifts the
+  // window slightly, pinging early would waste part of it.
+  if (result.value.action === 'WAIT_THEN_PING' && !flags.has('--no-wait')) {
+    const marginMs = Number(process.env.CWK_WAIT_MARGIN_MS ?? 60_000);
+    const waitMs = result.value.decision.remainingMs;
+    console.log(`Next ping due in ${formatDuration(waitMs)}. Waiting to ping exactly on time...`);
+    await sleep(waitMs + marginMs);
+    result = await cwk.ping({});
+    if (!result.ok) return fail(result.error);
+  }
 
   if (asJson) return console.log(JSON.stringify(result.value, null, 2));
   console.log(result.value.action === 'PING'
     ? 'Synchronization completed successfully.'
     : 'No synchronization required.');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function doctor(cwk) {
@@ -172,6 +189,7 @@ Commands:
 
 Options:
   --force     (ping) Ping even if not due yet
+  --no-wait   (ping) Never wait for a close ping, report and exit
   --json      Machine-readable output
   --verbose   Show error details
   --version   Print CWK version

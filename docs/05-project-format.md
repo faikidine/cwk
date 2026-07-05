@@ -99,12 +99,17 @@ Example:
 ```json
 {
     "runtime": "github-actions",
-    "interval": 5,
+    "intervalHours": 5,
+    "patienceMinutes": 25,
     "timezone": "Europe/Paris",
     "model": "haiku",
     "prompt": "."
 }
 ```
+
+`patienceMinutes` is the maximum time CWK is willing to wait, inside a
+single run, for the next ping to become due (see the Core Engine
+document). Older projects without this field use the default.
 
 ---
 

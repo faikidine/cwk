@@ -130,6 +130,27 @@ test('synchronize waits without contacting Claude when not due', async () => {
   assert.equal(calls.savedStates.length, 0);
 });
 
+test('synchronize answers WAIT_THEN_PING near the target without contacting Claude', async () => {
+  // 10 minutes before the next ping, default patience is 25 minutes.
+  const project = makeProject({ state: { lastSuccessfulPing: NOW - 5 * HOUR + 10 * 60 * 1000 } });
+  const { engine, calls } = makeFakes({ project });
+  const result = await engine.synchronize();
+
+  assert.equal(result.value.action, 'WAIT_THEN_PING');
+  assert.equal(result.value.decision.remainingMs, 10 * 60 * 1000);
+  assert.equal(calls.pings, 0);
+  assert.equal(calls.savedStates.length, 0);
+});
+
+test('synchronize respects a custom patience from config', async () => {
+  const project = makeProject({ state: { lastSuccessfulPing: NOW - 5 * HOUR + 10 * 60 * 1000 } });
+  project.config = { ...project.config, patienceMinutes: 5 };
+  const { engine } = makeFakes({ project });
+  const result = await engine.synchronize();
+
+  assert.equal(result.value.action, 'WAIT');
+});
+
 test('synchronize --force pings even when not due', async () => {
   const project = makeProject({ state: { lastSuccessfulPing: NOW - 2 * HOUR } });
   const { engine, calls } = makeFakes({ project });

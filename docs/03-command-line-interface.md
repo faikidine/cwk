@@ -204,6 +204,18 @@ If no ping is necessary:
 No synchronization required.
 ```
 
+If the next ping is due within the configured patience, the command
+waits for the exact moment (plus a one-minute safety margin, so a ping
+never fires early because of clock drift), then pings:
+
+```text
+Next ping due in 12 minutes. Waiting to ping exactly on time...
+Synchronization completed successfully.
+```
+
+`--no-wait` disables this behavior (the command reports and exits
+immediately, useful for scripts that must not block).
+
 If a ping is required:
 
 ```text
