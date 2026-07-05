@@ -37,6 +37,25 @@ export class TimeParseError extends Error {
 }
 
 /**
+ * Offset of an IANA timezone, in minutes, at a given instant.
+ * chrono-node silently ignores IANA names in its parsing reference and
+ * falls back to the system timezone; it only honors numeric offsets.
+ */
+export function timezoneOffsetMinutes(timezone, atMs) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'longOffset' })
+      .formatToParts(new Date(atMs));
+    const name = parts.find((part) => part.type === 'timeZoneName')?.value ?? 'GMT';
+    const match = name.match(/GMT([+-])(\d{2}):(\d{2})/);
+    if (!match) return 0; // plain "GMT" means UTC
+    const sign = match[1] === '-' ? -1 : 1;
+    return sign * (Number(match[2]) * 60 + Number(match[3]));
+  } catch {
+    return 0; // unknown timezone: behave as UTC rather than crashing
+  }
+}
+
+/**
  * Parse a human time expression into an absolute timestamp (ms).
  *
  * Accepts natural language via chrono-node, e.g.:
@@ -50,7 +69,10 @@ export function parseNextTime(input, timezone, referenceMs = Date.now()) {
   const raw = String(input ?? '').trim();
   if (!raw) throw new TimeParseError(input, 'empty input');
 
-  const reference = { instant: new Date(referenceMs), timezone };
+  const reference = {
+    instant: new Date(referenceMs),
+    timezone: timezoneOffsetMinutes(timezone, referenceMs)
+  };
   const options = { forwardDate: true };
 
   let results = chrono.parse(raw, reference, options);

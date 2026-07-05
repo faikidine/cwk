@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseNextTime, formatDuration, TimeParseError } from '../../src/shared/time.js';
+import { parseNextTime, formatDuration, timezoneOffsetMinutes, TimeParseError } from '../../src/shared/time.js';
 
 // Saturday 2026-07-04 10:00 UTC.
 const REF = Date.parse('2026-07-04T10:00:00Z');
@@ -47,6 +47,16 @@ test('parses French formats via fallback locale', () => {
 test('interprets times in the configured timezone', () => {
   // 23:50 in Paris (UTC+2 in July) is 21:50 UTC.
   assert.equal(parsed('23:50', 'Europe/Paris'), '2026-07-04T21:50:00.000Z');
+  // 23:50 in New York (UTC-4 in July) is 03:50 UTC the next day.
+  assert.equal(parsed('23:50', 'America/New_York'), '2026-07-05T03:50:00.000Z');
+});
+
+test('timezone offsets follow daylight saving time', () => {
+  assert.equal(timezoneOffsetMinutes('Europe/Paris', REF), 120); // summer
+  assert.equal(timezoneOffsetMinutes('Europe/Paris', Date.parse('2026-01-15T10:00:00Z')), 60); // winter
+  assert.equal(timezoneOffsetMinutes('Asia/Kolkata', REF), 330); // half-hour offset
+  assert.equal(timezoneOffsetMinutes('UTC', REF), 0);
+  assert.equal(timezoneOffsetMinutes('Not/A_Zone', REF), 0); // safe fallback
 });
 
 test('rejects unparseable input', () => {

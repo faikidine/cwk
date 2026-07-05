@@ -3,7 +3,7 @@
 [![CI](https://github.com/faikidine/cwk/actions/workflows/ci.yml/badge.svg)](https://github.com/faikidine/cwk/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/claude-window-keeper)](https://www.npmjs.com/package/claude-window-keeper)
 
-> Keep your Claude Code usage window synchronized.
+> Keep your Claude Code usage window ready for long sessions by reducing the next reset time.
 
 > [!NOTE]
 > CWK is an independent open-source project. It is **not** affiliated with, endorsed by, or sponsored by Anthropic. "Claude", "Claude AI" and "Claude Code" are trademarks of Anthropic, PBC.
