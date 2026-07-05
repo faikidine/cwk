@@ -14,9 +14,9 @@
   "scripts": {
     "start": "node ./src/cli/index.js",
     "check": "find src test -name '*.js' -print0 | xargs -0 -n1 node --check",
-    "test": "node --test \"test/**/*.test.js\"",
-    "test:unit": "node --test \"test/unit/*.test.js\"",
-    "test:integration": "node --test \"test/integration/*.test.js\""
+    "test": "node --test test/unit/*.test.js test/integration/*.test.js",
+    "test:unit": "node --test test/unit/*.test.js",
+    "test:integration": "node --test test/integration/*.test.js"
   },
   "dependencies": {
     "chrono-node": "^2.7.0"
