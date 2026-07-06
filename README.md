@@ -12,6 +12,10 @@ CWK is a small, engine-first CLI that keeps your Claude Code usage window aligne
 
 CWK does **not** bypass Anthropic limits, increase quotas, or exploit undocumented behavior. It only automates a single action users already perform manually.
 
+## Overview
+
+https://github.com/user-attachments/assets/4c0b4282-31c3-41e5-8b2d-bae5667722f6
+
 ## How it works
 
 1. You tell CWK when the **next** ping should happen.
