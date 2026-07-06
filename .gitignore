@@ -17,6 +17,9 @@ coverage/
 .nyc_output/
 *.tgz
 
+# Explainer video is hosted on GitHub's CDN, not committed
+*.mp4
+
 # TypeScript
 *.tsbuildinfo
 
